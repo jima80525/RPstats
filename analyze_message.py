@@ -10,10 +10,10 @@ from bokeh.plotting import figure, curdoc
 from bokeh.server.server import Server
 from dateutil.parser import parse as date_parse
 import numpy as np
-import pandas as pd
 import parse
 import pathlib
 import sys
+from functools import partial
 
 
 PATTERNS = dict(
@@ -81,7 +81,6 @@ def callback(selections):
 
 def analyze(message):
     lines = message.split("\n")
-    orig_lines = lines
     date = None
     data = dict()
 
@@ -119,9 +118,8 @@ def analyze(message):
     return srcs, list(data.keys())
 
 
-def graph_it(doc):
-    path = pathlib.Path(sys.argv[1])
-    srcs, titles = analyze(path.read_text())
+def graph_it(args, doc):
+    path = pathlib.Path(args.input_file)
 
     callback.srcs = srcs
     callback.titles = titles
@@ -142,12 +140,13 @@ def get_command_line_args():
     return parser.parse_args()
 
 
-def start_server(address, port, url, attempts=100):
+def start_server(args, address, port, url, attempts=100):
+    g = partial(graph_it, args)
     while attempts:
         attempts -= 1
         try:
             server = Server(
-                {url: graph_it},
+                {url: g},
                 num_procs=1,
                 port=port,
                 address=address,
@@ -172,7 +171,7 @@ if __name__ == "__main__":
     url = "/"
 
     try:
-        server, port = start_server(address, port, url)
+        server, port = start_server(args, address, port, url)
     except Exception as ex:
         print("Failed:", ex)
         sys.exit()
