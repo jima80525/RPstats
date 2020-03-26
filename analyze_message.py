@@ -14,6 +14,7 @@ import parse
 import pathlib
 import sys
 from functools import partial
+from collections import defaultdict
 
 
 PATTERNS = dict(
@@ -79,10 +80,12 @@ def callback(selections):
     curdoc().clear()
     curdoc().add_root(row(callback.checkbox_group, p))
 
-def analyze(message):
+def analyze(message, cumulative=False):
     lines = message.split("\n")
     date = None
     data = dict()
+    if cumulative:
+        cumulative_totals = {}
 
     for line in lines:
         date_search = PATTERNS["date"].search(line)
@@ -108,18 +111,39 @@ def analyze(message):
             data[slug]["views"].append(result["views"])
             data[slug]["users"].append(result["users"])
             data[slug]["view_time"].append(result["time"])
+            if cumulative:
+                if date not in cumulative_totals:
+                    cumulative_totals[date] = defaultdict(list)
+                cumulative_totals[date]["views"].append(result["views"])
+                cumulative_totals[date]["users"].append(result["users"])
+                cumulative_totals[date]["view_time"].append(result["time"])
 
     srcs = []
-    for value in data.values():
+    titles = []
+    for slug, value in data.items():
         dates = np.array(value['date'], dtype=np.datetime64)
         views = np.array(value['views'])
-        srcs.append(ColumnDataSource(data=dict(date=dates, info=views)))
+        if cumulative:
+            srcs.append(ColumnDataSource(data=dict(date=dates, info=np.cumsum(views))))
+            titles.append(slug + " Cumulative")
+        else:
+            srcs.append(ColumnDataSource(data=dict(date=dates, info=views)))
+            titles.append(slug)
 
-    return srcs, list(data.keys())
+    if cumulative:
+        srcs.append(ColumnDataSource(data=dict(
+            date=np.array(list(cumulative_totals.keys()), dtype=np.datetime64),
+            info=np.cumsum([sum(v["views"]) for v in cumulative_totals.values()]),
+        )))
+        titles.append("Total Cumulative Views")
+
+    return srcs, titles
 
 
 def graph_it(args, doc):
     path = pathlib.Path(args.input_file)
+    cumulative = args.cumulative
+    srcs, titles = analyze(path.read_text(), cumulative)
 
     callback.srcs = srcs
     callback.titles = titles
@@ -136,6 +160,7 @@ def get_command_line_args():
     """ Read command line args, of course."""
     parser = argparse.ArgumentParser()
     parser.add_argument("-n", "--no-checkbox", action="store_true")
+    parser.add_argument("-c", "--cumulative", action="store_true", help="Plot cumulative values")
     parser.add_argument("input_file", help="raw text copied from slack")
     return parser.parse_args()
 
